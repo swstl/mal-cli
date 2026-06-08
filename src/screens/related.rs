@@ -10,7 +10,7 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap};
 
-use crate::add_screen_caching;
+use crate::{add_screen_caching, send_error};
 use crate::app::{Action, Event};
 use crate::config::Config;
 use crate::config::navigation::NavDirection;
@@ -903,6 +903,13 @@ impl RelatedScreen {
                 "Related:",
                 Style::default().fg(theme.text),
             )));
+
+            let padding = branches
+                .iter()
+                .map(|b| b.relation_label.len())
+                .max()
+                .unwrap_or(0);
+
             for (i, b) in branches.iter().enumerate() {
                 let selected =
                     self.focus == Focus::Timeline && self.in_branches && i == self.branch_index;
@@ -912,8 +919,9 @@ impl RelatedScreen {
                 } else {
                     Style::default().fg(theme.text)
                 };
+
                 lines.push(Line::from(Span::styled(
-                    format!("{}{:<19} ▸ {}", marker, b.relation_label, b.title),
+                    format!("{}{:<padding$} ▸ {}", marker, b.relation_label, b.title),
                     style,
                 )));
             }
