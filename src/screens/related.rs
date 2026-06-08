@@ -913,7 +913,7 @@ impl RelatedScreen {
                     Style::default().fg(theme.text)
                 };
                 lines.push(Line::from(Span::styled(
-                    format!("{}{:<12} ▸ {}", marker, b.relation_label, b.title),
+                    format!("{}{:<19} ▸ {}", marker, b.relation_label, b.title),
                     style,
                 )));
             }

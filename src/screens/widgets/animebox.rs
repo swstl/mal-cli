@@ -102,7 +102,7 @@ impl AnimeBox {
 
         let user_stats_value_text = if anime.my_list_status.score > 0 {
             format!(
-                "{}★({})",
+                "{} ★{}",
                 anime.my_list_status.status, anime.my_list_status.score
             )
         } else {
