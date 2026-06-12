@@ -89,6 +89,8 @@ pub struct RelatedScreen {
     in_branches: bool,
     branch_index: usize,
     scroll: usize,
+    strip_visible: usize,
+    last_drawn_line_index: Option<usize>,
     node_areas: Vec<(usize, Rect)>,
     branch_areas: Vec<(usize, Rect)>,
 
@@ -115,6 +117,8 @@ impl RelatedScreen {
             in_branches: false,
             branch_index: 0,
             scroll: 0,
+            strip_visible: 0,
+            last_drawn_line_index: None,
             node_areas: Vec::new(),
             branch_areas: Vec::new(),
             bg_sender: None,
@@ -512,6 +516,21 @@ impl Screen for RelatedScreen {
 
         // hovering / clicking a timeline box highlights it (and click opens it)
         if self.mode == Mode::Timeline {
+            let page = self.strip_visible.max(1);
+            match mouse_event.kind {
+                crossterm::event::MouseEventKind::ScrollUp
+                | crossterm::event::MouseEventKind::ScrollLeft => {
+                    self.scroll = self.scroll.saturating_sub(page);
+                    return None;
+                }
+                crossterm::event::MouseEventKind::ScrollDown
+                | crossterm::event::MouseEventKind::ScrollRight => {
+                    self.scroll = self.scroll.saturating_add(page);
+                    return None;
+                }
+                _ => {}
+            }
+
             if let Some((node_idx, _)) = self.node_areas.iter().find(|(_, r)| r.contains(pos)) {
                 let node_idx = *node_idx;
                 self.focus = Focus::Timeline;
@@ -788,18 +807,24 @@ impl RelatedScreen {
         const BOX_H: u16 = 12;
         let slot = NODE_W + GAP;
         let visible = ((area.width.saturating_sub(2)) / slot).max(1) as usize;
+        self.strip_visible = visible;
 
         // a label row + a fixed-height box, vertically centered in the strip
         let cell_h = BOX_H + 1;
         let cell_y = area.y + area.height.saturating_sub(cell_h) / 2;
 
-        // keep the selected node within the visible window
-        let mut scroll = self.scroll;
-        if self.line_index < scroll {
-            scroll = self.line_index;
-        } else if self.line_index >= scroll + visible {
-            scroll = self.line_index + 1 - visible;
+        // never scroll past the last screenful of nodes
+        let max_scroll = timeline.line.len().saturating_sub(visible);
+        let mut scroll = self.scroll.min(max_scroll);
+        if self.last_drawn_line_index != Some(self.line_index) {
+            if self.line_index < scroll {
+                scroll = self.line_index;
+            } else if self.line_index >= scroll + visible {
+                scroll = self.line_index + 1 - visible;
+            }
         }
+        self.last_drawn_line_index = Some(self.line_index);
+        self.scroll = scroll;
         let end = (scroll + visible).min(timeline.line.len());
 
         for (slot_idx, node_idx) in (scroll..end).enumerate() {
