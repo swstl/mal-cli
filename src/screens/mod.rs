@@ -294,6 +294,7 @@ impl ScreenManager {
     }
 
     pub fn show_error(&mut self, error: String) {
+        crate::utils::errorBus::log_to_file(&error);
         self.error_overlay.set_error(error);
         self.error_overlay.open();
     }

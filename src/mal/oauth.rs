@@ -52,6 +52,24 @@ where
     }
 }
 
+fn token_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+fn token_error(response: &mut ureq::http::Response<ureq::Body>) -> anyhow::Error {
+    let status = response.status();
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    let body = body.trim();
+    if body.is_empty() {
+        anyhow::anyhow!("HTTP error: {}", status)
+    } else {
+        anyhow::anyhow!("HTTP error {}: {}", status, body)
+    }
+}
+
 pub fn refresh_token<T: Into<String>, F>(refresh_token: T, callback: F) -> Result<()>
 where
     F: FnOnce(Identity) -> Result<()> + Send + Sync,
@@ -62,14 +80,18 @@ where
         ("refresh_token", refresh_token.into()),
     ];
 
-    let new_token = ureq::post(TOKEN)
-        .send_form(body)
-        .map_err(|e| {
-            send_error!("refresh token request failed: {}", e);
-            anyhow::anyhow!(e.to_string())
-        })?
-        .body_mut()
-        .read_json::<Identity>()?;
+    let mut response = token_agent().post(TOKEN).send_form(body).map_err(|e| {
+        send_error!("refresh token request failed: {}", e);
+        anyhow::anyhow!(e.to_string())
+    })?;
+
+    if !response.status().is_success() {
+        let err = token_error(&mut response);
+        send_error!("refresh token failed: {}", err);
+        return Err(err);
+    }
+
+    let new_token = response.body_mut().read_json::<Identity>()?;
 
     callback(new_token)
 }
@@ -107,16 +129,20 @@ fn exchange_for_user_tokens(code: &str, code_verifier: &str, port: u16) -> Resul
         ("code_verifier", code_verifier),
     ];
 
-    let response = ureq::post(TOKEN)
-        .send_form(body)
-        .map_err(|e| {
-            send_error!("token request failed: {}", e);
-            anyhow::anyhow!(e.to_string())
-        })?
-        .body_mut()
-        .read_json::<Identity>()?;
+    let mut response = token_agent().post(TOKEN).send_form(body).map_err(|e| {
+        send_error!("token request failed: {}", e);
+        anyhow::anyhow!(e.to_string())
+    })?;
 
-    Ok(response)
+    if !response.status().is_success() {
+        let err = token_error(&mut response);
+        send_error!("token exchange failed: {}", err);
+        return Err(err);
+    }
+
+    let identity = response.body_mut().read_json::<Identity>()?;
+
+    Ok(identity)
 }
 
 /*

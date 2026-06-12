@@ -13,7 +13,7 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 use ureq::config::IpFamily;
-use ureq::{Agent, Error};
+use ureq::Agent;
 use url::Url;
 
 #[macro_export]
@@ -27,15 +27,29 @@ macro_rules! params {
 // pub const PROXY: &str = "http://localhost:1111/proxy?url=";
 pub const PROXY: &str = "";
 const MAX_RETRIES: u32 = 5;
+const MAX_ERROR_BODY: usize = 2048;
 static AGENT: OnceLock<Agent> = OnceLock::new();
 fn get_agent() -> &'static Agent {
     AGENT.get_or_init(|| {
         Agent::config_builder()
             .ip_family(IpFamily::Ipv4Only)
             .timeout_global(Some(Duration::from_secs(10)))
+            .http_status_as_error(false)
             .build()
             .into()
     })
+}
+
+fn http_error_message(response: &mut ureq::http::Response<ureq::Body>) -> String {
+    let status = response.status();
+    let body = response.body_mut().read_to_string().unwrap_or_default();
+    let body = body.trim();
+    if body.is_empty() {
+        format!("HTTP error: {}", status)
+    } else {
+        let body: String = body.chars().take(MAX_ERROR_BODY).collect();
+        format!("HTTP error {}: {}", status, body)
+    }
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -74,13 +88,16 @@ pub fn fetch_image(uri: String) -> Result<image::DynamicImage, String> {
         "http" | "https" => loop {
             match agent.get(&format!("{}{}", PROXY, uri)).call() {
                 Ok(mut response) => {
+                    if !response.status().is_success() {
+                        return Err(http_error_message(&mut response));
+                    }
+
                     let mut reader = response.body_mut().as_reader();
                     let mut buffer = Vec::new();
                     reader.read_to_end(&mut buffer).map_err(|e| e.to_string())?;
 
                     return image::load_from_memory(&buffer).map_err(|e| e.to_string());
                 }
-                Err(Error::StatusCode(code)) => return Err(format!("HTTP error: {}", code)),
                 Err(e) => {
                     let error_message = e.to_string().to_lowercase();
                     let error_is_timeout =
@@ -311,14 +328,12 @@ where
             _ => return Err(format!("Unsupported HTTP method: {}", method).into()),
         };
 
-        // check for errors
         match result {
-            // all good
-            Ok(mut response) => return Ok(response.body_mut().read_json::<T>()?),
-
-            // request successful but with an error status code
-            Err(ureq::Error::StatusCode(status)) => {
-                return Err(format!("HTTP error: {}", status).into());
+            Ok(mut response) => {
+                if !response.status().is_success() {
+                    return Err(http_error_message(&mut response).into());
+                }
+                return Ok(response.body_mut().read_json::<T>()?);
             }
 
             // request failed due to network error or timeout etc
@@ -397,9 +412,11 @@ pub fn send_request_expect_text(
         };
 
         match result {
-            Ok(mut resp) => return Ok(resp.body_mut().read_to_string()?),
-            Err(ureq::Error::StatusCode(status)) => {
-                return Err(format!("HTTP error: {}", status).into());
+            Ok(mut resp) => {
+                if !resp.status().is_success() {
+                    return Err(http_error_message(&mut resp).into());
+                }
+                return Ok(resp.body_mut().read_to_string()?);
             }
             Err(e) => {
                 let em = e.to_string().to_lowercase();
@@ -449,15 +466,21 @@ pub trait Update: Sized + database::Entryable{
     ) -> Result<(usize, Self::Response), Box<dyn std::error::Error>>
     {
         self.pre_update();
-        let updated = match database.upsert(self) {
-            Ok(u) => u,
-            Err(e) => {
-                send_error!("Failed to update local database: {}", e);
-                return Err("local db error".into());
-            }
+        let id = self.get_id();
+        let response = self.to_offline_response();
+
+        let result = if self.get_method() == "DELETE" {
+            database.delete(&self)
+        } else {
+            database.upsert(self).map(|_| ())
         };
-        let response = updated.to_offline_response();
-        Ok((updated.get_id(), response))
+
+        if let Err(e) = result {
+            send_error!("Failed to update local database: {}", e);
+            return Err("local db error".into());
+        }
+
+        Ok((id, response))
     }
 
     fn update(

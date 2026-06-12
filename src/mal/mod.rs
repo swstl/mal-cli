@@ -383,7 +383,7 @@ impl MalClient {
         )
     }
 
-    pub fn update_user_list<T: Update + Entryable>(
+    pub fn update_user_list<T: Update + Entryable + Clone>(
         &self,
         element: T,
     ) -> Result<(usize, T::Response), Box<dyn std::error::Error + 'static>> {
@@ -404,7 +404,11 @@ impl MalClient {
             Err(_) => return Err("token error".into()),
         };
 
-        element.update(
+        let local_result = element
+            .clone()
+            .update_local(&self.local_db);
+
+        match element.update(
             token,
             format!(
                 "{}/{}/{}/my_list_status",
@@ -412,10 +416,16 @@ impl MalClient {
                 element.get_belonging_list(),
                 element.get_id()
             ),
-        )
+        ) {
+            Ok(remote) => Ok(remote),
+            Err(e) => {
+                send_error!("Failed to sync update to MAL: {}", e);
+                local_result
+            }
+        }
     }
 
-    pub fn update_user_list_async<T: Update + Send + 'static + Entryable>(
+    pub fn update_user_list_async<T: Update + Send + 'static + Entryable + Clone>(
         &self,
         element: T,
     ) -> tokio::task::JoinHandle<Result<(usize, T::Response), BoxedSendError>>

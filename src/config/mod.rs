@@ -1,8 +1,10 @@
+pub mod logging;
 pub mod navigation;
 pub mod network;
 pub mod player;
 pub mod theme;
 
+use logging::Logging;
 use navigation::Navigation;
 use network::Network;
 use player::Player;
@@ -30,6 +32,9 @@ pub struct Config {
     #[serde(default = "Theme::default")]
     pub theme: Theme,
 
+    #[serde(default = "Logging::default")]
+    pub logging: Logging,
+
     pub allow_nsfw: Option<bool>,
 
     /// Show titles in romaji (MAL's main title) instead of English.
@@ -47,12 +52,18 @@ impl Config {
         CONFIG.get().expect("Config not initialized - call Config::init() first")
     }
 
+    // get the global config without panicking if it hasn't been initialized yet
+    pub fn try_global() -> Option<&'static Config> {
+        CONFIG.get()
+    }
+
     pub fn default() -> Self {
         Self {
             navigation: Navigation::default(),
             network: Network::default(),
             player: Player::default(),
             theme: Theme::default(),
+            logging: Logging::default(),
             allow_nsfw: Some(true),
             prefer_romaji: Some(false),
         }
