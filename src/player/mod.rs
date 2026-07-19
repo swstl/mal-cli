@@ -154,9 +154,15 @@ impl AnimePlayer {
         }
         let new_path = format!("{}:{}", shim_dir.display(), std::env::var("PATH").unwrap_or_default());
 
+        let mut dub = String::new();
+        if Config::global().dub.unwrap_or(false) {
+            dub.push_str("--dub");
+        }
+
         let mut child = Command::new("ani-cli")
             .env("PATH", new_path)
             .env("ANICLI_TARGET", &anime.title)
+            .arg(dub)
             .arg("--no-detach")
             .arg("--exit-after-play")
             .arg("-e")

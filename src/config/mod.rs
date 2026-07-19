@@ -39,6 +39,8 @@ pub struct Config {
 
     /// Show titles in romaji (MAL's main title) instead of English.
     pub prefer_romaji: Option<bool>,
+
+    pub dub: Option<bool>,
 }
 
 impl Config {
@@ -66,6 +68,7 @@ impl Config {
             logging: Logging::default(),
             allow_nsfw: Some(true),
             prefer_romaji: Some(false),
+            dub: Some(false),
         }
     }
 
